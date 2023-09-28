@@ -7,10 +7,10 @@
 
 int main() {
     char input[256];
-    printf("MyShell session started...\n");
+    // printf("MyShell session started...\n");
     while (1) {
         // ask for a prompt
-        printf("Enter Shell Command:\n>");
+        printf("$ ");
         scanf(" %[^\n]", input);
         // Exit the shell if the user enters "exit" or "quit"
         if (strcmp(input, "exit") == 0 || strcmp(input, "quit") == 0) {
