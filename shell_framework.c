@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+# include "execute_command.h"
 
 int main() {
     char input[256];
