@@ -13,7 +13,7 @@
 #define MAX_CMDS 8
 
 
-
+//a utility function to create arguments for the command
 char **create_args(const char *command, const char *separator) {
     char **args = (char **)malloc(MAX_ARGS * sizeof(char *));
     if (!args) {
@@ -235,9 +235,6 @@ int execute_command(char *input) {
         exit(EXIT_FAILURE);
     }
 
-    int index = 0;
-    char *cmd_start = buffer;
-    int in_command = 0;
 
     char **commands =create_args(input, " | ");
 
@@ -264,6 +261,7 @@ int execute_command(char *input) {
         execute_three_commands(commands[0], commands[1], commands[2], commands[3]);
     }
     */
+    free(commands);
 
     return 0;
 }
