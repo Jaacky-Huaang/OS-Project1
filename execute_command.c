@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 #define MAX_INPUT_SIZE 256
 #define MAX_ARGS 64
@@ -13,16 +14,14 @@
 
 
 
-//utility functions
-//_______________________________________________________________________________________
-char **create_args(const char *command, const char *seperator) {
+char **create_args(const char *command, const char *separator) {
     char **args = (char **)malloc(MAX_ARGS * sizeof(char *));
     if (!args) {
         perror("Failed to allocate memory for args");
         exit(EXIT_FAILURE);
     }
 
-    char *command_copy = strdup(command);
+    char *command_copy = strdup(command);//make a copy of the command because strtok will modify it
     if (!command_copy) {
         perror("Failed to copy command");
         free(args);
@@ -30,65 +29,118 @@ char **create_args(const char *command, const char *seperator) {
     }
 
     int arg_count = 0;
-    char *component = strtok(command_copy, seperator);
-    while (component != NULL && arg_count < MAX_ARGS - 1) {
-        args[arg_count] = component;
-        arg_count++;
-        component = strtok(NULL, seperator);
+    char *component = strstr(command_copy, separator);  // Find first occurrence of separator
+    while (component != NULL && arg_count < MAX_ARGS - 1) // -1 to leave room for NULL
+    {
+        *component = '\0';//replace the separator with a null character
+        args[arg_count] = command_copy;//add the component to the array of arguments
+        arg_count++;//increment the number of arguments
+        command_copy = component + strlen(separator);  // Move past the separator
+        component = strstr(command_copy, separator);  // Find next occurrence of separator
     }
-    args[arg_count] = NULL;
 
+    // Append the remaining part or the entire string if no separator was found
+    if (*command_copy) {
+        args[arg_count++] = command_copy;
+    }
+    args[arg_count] = NULL;//set the last element of the array to NULL
 
-    free(command_copy);
     return args;
 }
+
+
 
 //_______________________________________________________________________________________
 
 int input_redirect(char *command)
 {   
-    //handle the input redirection by getting the input file name
-    //sample: cat < file...
-    char *input_file = NULL;
-    char *command_copy = strdup(command);
-    char *input_redirect = strstr(command_copy, "<");
-    //redirect is pointer pointing to the first occurence of "<"
-    if (input_redirect) //if there is indeed "<"
-    {
-        *input_redirect = '\0'; //replace the first occurence of "<" with '\0'
-        input_file = strtok(input_redirect + 1, " "); //get the file name
-        input_file += strspn(input_file, " \t"); //skip the white space
+    char **args = create_args(command, " < ");
+    char *sub_command = args[0];
+    char *input_file = args[1]; 
+
+    int fd = open(input_file, O_RDONLY);  // open the input file
+
+    if (fd < 0) {
+        perror("Failed to open input file");
+        exit(1);
     }
-    
+
+    char **sub_args = create_args(sub_command, " ");//create arguments for the command
+
+    dup2(fd, STDIN_FILENO);  // duplicate file descriptor to stdin
+    close(fd);  // close the original file descriptor
+    execvp(sub_args[0], sub_args);  // execute the command
+    perror("Exec failed");  // execvp will only return if there's an error
+    exit(1);
+  
+}
+
+
+int output_redirect(char *command)
+{   
+    //redirecting output
+    char **args = create_args(command, " > ");
+    char *sub_command = args[0];
+    char *output_file = args[1];
+
+    int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);  // open the input file, googled convention
+    if (fd < 0) {
+        perror("Failed to open input file");
+        exit(1);
+    }
+
+    char **sub_args = create_args(sub_command, " ");
+
+    dup2(fd, STDOUT_FILENO);  // duplicate file descriptor to stdout
+    close(fd);  // close the original file descriptor
+    execvp(sub_args[0], sub_args);  // execute the command
+    perror("Exec failed");  // execvp will only return if there's an error
+    exit(1);
+    return 0;
+}
+
+int error_redirect(char *command) {   
+    char **args = create_args(command, " 2> ");
+    char *sub_command = args[0];
+    char *error_file = args[1];
+
+    int fd = open(error_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);  // open the input file, googled convention
+    if (fd < 0) {
+        perror("Failed to open error file");
+        exit(1);
+    }
+
+    char **sub_args = create_args(sub_command, " ");
+    dup2(fd, STDERR_FILENO);  // Redirect stderr to the error file
+    close(fd);  
+    close(STDOUT_FILENO);  // Close stdout
+    execvp(sub_args[0], sub_args);  // execute the command
+    perror("Exec failed");  
+    exit(1);
 }
 
 int execute_helper(char *command) 
 {
 
-    if (strchr(command, '<') )
+    if (strchr(command, '<') )//if the command contains <, then it is an input redirection
     {
         return input_redirect(command);
     }
 
     //这里的条件是互斥的，不知道你能不能写成可以一起执行的
-
-    else if (strchr(command, '>') )
+    else if (strstr(command, "2>") )
     {
-        return output_redirect(command);
+        return error_redirect(command); // Redirect stderr to the error file
     }
 
-    else if (strchr(command, '2>') )
+    else if (strchr(command, '>')  )
     {
-        return error_redirect(command);
+        return output_redirect(command);//if the command contains >, then it is an output redirection
     }
 
     else
     { 
-
-        char **args = create_args(command, " ");
-        for (int i = 0; args[i] != NULL; i++) {
-            printf("args[%d] = %s\n", i, args[i]);
-        }
+        char **args = create_args(command, " ");//if we do not have >, <, 2>, then we just create arguments for the command
 
         if (execvp(args[0], args) == -1) {
             perror("Error executing command");
@@ -100,10 +152,12 @@ int execute_helper(char *command)
     return 1; // Return 1 to continue the shell
 }
 
+//command
+//execute a single command without any pipes or redirection
 int execute_single_command(char *command) 
 {
 
-    pid_t pid = fork();
+    pid_t pid = fork();//fork a child process so not to interrupt the main process
     if (pid < 0) {
         perror("fork failed");
         exit(EXIT_FAILURE);
@@ -118,15 +172,14 @@ int execute_single_command(char *command)
 //command1 | command2
 int execute_one_pipe(char *command1, char *command2) {
     
-    printf("Executing one-pipe command: %s | %s\n", command1, command2);
-    int pipefd[2];
+    int pipefd[2];//create a pipe
 
     if (pipe(pipefd) == -1) {
         perror("pipe");
         exit(EXIT_FAILURE);
     }
 
-    pid_t pid = fork();
+    pid_t pid = fork();//fork a child process so not to interrupt the main process
 
     if(pid == -1) {
         perror("fork");
@@ -134,7 +187,7 @@ int execute_one_pipe(char *command1, char *command2) {
     }
     else if (pid == 0) { // Child process for command1
         close(pipefd[0]);//close the read end of the pipe
-        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDOUT_FILENO);//replace stdout with the write end of the pipe
         execute_helper(command1);//execute command1
     }
 
@@ -145,7 +198,7 @@ int execute_one_pipe(char *command1, char *command2) {
     if (pid2 == 0) { // Child process for command2
         close(pipefd[1]);//close the write end of the pipe
         dup2(pipefd[0], STDIN_FILENO);//replace stdin with the read end of the pipe
-        execute_helper(command2);
+        execute_helper(command2);//execute command2
     }
 
     close(pipefd[0]);//close the read end of the pipe
@@ -159,10 +212,9 @@ int execute_one_pipe(char *command1, char *command2) {
 
 int execute_command(char *input) {
 
-    char *commands[MAX_CMDS];  // Assuming a maximum of 8 commands in a pipeline
+    //char *commands[MAX_CMDS];  // Assuming a maximum of 8 commands in a pipeline
     int pipe_count = 0;         // Number of pipes in the command
  
-    printf("Executing: %s\n", input);
 
     // Remove the trailing newline character
     if (input[strlen(input) - 1] == '\n') {
@@ -176,12 +228,7 @@ int execute_command(char *input) {
         }
     }
 
-
-    // Split the command based on pipes
-    /*
-    char *token = strtok(input, " | ");
-    
-    */
+    // Create a copy of the input string because strtok will modify it
     char *buffer = strdup(input);
     if (!buffer) {
         perror("Failed to allocate memory");
@@ -192,35 +239,9 @@ int execute_command(char *input) {
     char *cmd_start = buffer;
     int in_command = 0;
 
-    for (char *ptr = buffer; *ptr != '\0'; ptr++) {
-        if (*ptr == '|') {
-            if (in_command) {
-                *ptr = '\0';
-                commands[index++] = strdup(cmd_start);
-                in_command = 0;
-            }
-            while (*(ptr + 1) == ' ') ptr++;  // skip spaces after |
-        } else if (!in_command) {
-            cmd_start = ptr;
-            in_command = 1;
-        }
-    }
-
-    if (in_command) {
-        commands[index++] = strdup(cmd_start);
-    }
-
-    commands[index] = NULL;  // Terminate the list
+    char **commands =create_args(input, " | ");
 
     free(buffer);
-
-
-    // Print results
-    printf("Number of pipes: %d\n", pipe_count);
-    printf("Commands:\n");
-    for (int i = 0; i <= pipe_count; i++) {
-        printf("%d: %s\n", i + 1, commands[i]);
-    }
 
     
     if (pipe_count == 0) 
@@ -247,50 +268,4 @@ int execute_command(char *input) {
     return 0;
 }
 
-/*
 
-    char *output_file = NULL;
-    char *error_file = NULL;
-
-    //do the same for ">" to get the output file name
-    command_copy = strdup(command);
-    char *output_redirect = strstr(command_copy, ">");
-    if (output_redirect) {
-        *output_redirect = '\0';
-        output_file = strtok(output_redirect + 1, " ");
-        output_file += strspn(output_file, " \t");
-    }
-
-
-    //do the same for "2>" to get the error file name
-    command_copy = strdup(command);
-    char *error_redirect = strstr(command_copy, "2>");
-    if (error_redirect) {
-        *error_redirect = '\0';
-        error_file = strtok(error_redirect + 2, " ");
-        error_file += strspn(error_file, " \t");
-    }
-
-    // Redirecting input if specified
-    if (input_file != NULL) {
-        printf("input file: %s\n", input_file);
-        int in_fd = open(input_file, O_RDONLY);
-        if (in_fd == -1) {
-            perror("Error opening input file");
-            exit(EXIT_FAILURE);
-        }
-        dup2(in_fd, STDIN_FILENO);
-        close(in_fd);
-    }
-
-    // Redirecting output if specified
-    if (output_file != NULL) {
-        int out = open(output_file, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
-        if (out == -1) {
-            perror("Error opening output file");
-            exit(EXIT_FAILURE);
-        }
-        dup2(out, STDOUT_FILENO);
-        close(out);
-    }
-*/
