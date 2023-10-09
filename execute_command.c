@@ -48,8 +48,6 @@ char **create_args(const char *command, const char *separator) {
     return args;
 }
 
-
-
 //_______________________________________________________________________________________
 
 int input_redirect(char *command)
@@ -66,13 +64,13 @@ int input_redirect(char *command)
     }
 
     char **sub_args = create_args(sub_command, " ");//create arguments for the command
-
+    printf("Executing command: %s\n", sub_command);
     dup2(fd, STDIN_FILENO);  // duplicate file descriptor to stdin
     close(fd);  // close the original file descriptor
     execvp(sub_args[0], sub_args);  // execute the command
     perror("Exec failed");  // execvp will only return if there's an error
     exit(1);
-  
+    return 0;
 }
 
 
@@ -93,10 +91,12 @@ int output_redirect(char *command)
 
     dup2(fd, STDOUT_FILENO);  // duplicate file descriptor to stdout
     close(fd);  // close the original file descriptor
+    printf("Executing command: %s\n", sub_command);
     execvp(sub_args[0], sub_args);  // execute the command
     perror("Exec failed");  // execvp will only return if there's an error
     exit(1);
     return 0;
+    
 }
 
 int error_redirect(char *command) {   
@@ -111,12 +111,14 @@ int error_redirect(char *command) {
     }
 
     char **sub_args = create_args(sub_command, " ");
+    printf("Executing command: %s\n", sub_command);
     dup2(fd, STDERR_FILENO);  // Redirect stderr to the error file
     close(fd);  
     close(STDOUT_FILENO);  // Close stdout
     execvp(sub_args[0], sub_args);  // execute the command
     perror("Exec failed");  
     exit(1);
+    return 0;
 }
 
 int execute_helper(char *command) 
@@ -141,7 +143,7 @@ int execute_helper(char *command)
     else
     { 
         char **args = create_args(command, " ");//if we do not have >, <, 2>, then we just create arguments for the command
-
+        printf("Executing command: %s\n", command);
         if (execvp(args[0], args) == -1) {
             perror("Error executing command");
             exit(EXIT_FAILURE); // Only the child exits
@@ -161,7 +163,8 @@ int execute_single_command(char *command)
     if (pid < 0) {
         perror("fork failed");
         exit(EXIT_FAILURE);
-    } else if (pid == 0) { // Child process
+    } 
+    if (pid == 0) { // Child process
         execute_helper(command);
     } else { // Parent process
         wait(NULL);
@@ -199,6 +202,7 @@ int execute_one_pipe(char *command1, char *command2) {
         close(pipefd[1]);//close the write end of the pipe
         dup2(pipefd[0], STDIN_FILENO);//replace stdin with the read end of the pipe
         execute_helper(command2);//execute command2
+        
     }
 
     close(pipefd[0]);//close the read end of the pipe
@@ -208,6 +212,201 @@ int execute_one_pipe(char *command1, char *command2) {
 
     return 0;
 }
+
+int execute_two_pipes(char *command1, char *command2, char *command3) {
+   printf("Executing two-pipes command: %s | %s | %s\n", command1, command2,command3);
+   int pipefd1[2];
+   int pipefd2[2];
+   if (pipe(pipefd1) == -1) {
+        perror("pipe1 failed error");
+        exit(EXIT_FAILURE);
+    }
+    if (pipe(pipefd2) == -1) {
+        perror("pipe2 failed error");
+        exit(EXIT_FAILURE);
+    }
+    pid_t child1=fork();
+    if(child1==-1){
+        perror("fork1 failed error");
+        exit(EXIT_FAILURE);
+    }
+    else{
+        if(child1==0){
+        dup2(pipefd1[1], STDOUT_FILENO);
+        close(pipefd1[1]);
+        close(pipefd1[0]);
+        close(pipefd2[0]); // Close the read end of pipe2
+        close(pipefd2[1]); 
+        execute_helper(command1);
+        perror("child1 execution failed error");
+        exit(EXIT_FAILURE);
+        }
+        else{
+            pid_t child2=fork();
+            if(child2==-1){
+                perror("fork2 failed error");
+                exit(EXIT_FAILURE);
+            }
+            if(child2==0){
+            dup2(pipefd1[0], STDIN_FILENO);
+            dup2(pipefd2[1], STDOUT_FILENO);
+            close(pipefd1[1]);
+            close(pipefd2[0]);
+            close(pipefd2[1]);
+            close(pipefd1[0]);
+            execute_helper(command2);
+            perror("child2 execution failed error");
+            exit(EXIT_FAILURE);
+            }
+            else{
+                pid_t child3=fork();
+                if(child3==-1){
+                    perror("fork3 failed error");
+                    exit(EXIT_FAILURE);
+                }
+                if(child3==0){
+                    dup2(pipefd2[0], STDIN_FILENO);
+                    close(pipefd1[1]);
+                    close(pipefd1[0]);
+                    close(pipefd2[1]);
+                    close(pipefd2[0]);
+                    execute_helper(command3);
+                    perror("child3 execution failed error");
+                    exit(EXIT_FAILURE);
+                }
+                else
+                {
+                close(pipefd1[0]);
+                close(pipefd1[1]);
+                close(pipefd2[0]);
+                close(pipefd2[1]);
+                wait(NULL);
+                wait(NULL);
+                wait(NULL);
+                return 0;
+            }
+        }    
+    }    
+}
+}
+
+
+int execute_three_pipes(char *command1, char *command2, char *command3, char *command4) {
+   printf("Executing three-pipes command: %s | %s | %s | %s\n", command1, command2,command3,command4);
+   int pipefd1[2];
+   int pipefd2[2];
+   int pipefd3[2];
+   if (pipe(pipefd1) == -1) {
+        perror("pipe1 failed error");
+        exit(EXIT_FAILURE);
+    }
+    if (pipe(pipefd2) == -1) {
+        perror("pipe2 failed error");
+        exit(EXIT_FAILURE);
+    }
+    if (pipe(pipefd3) == -1) {
+        perror("pipe3 failed error");
+        exit(EXIT_FAILURE);
+    }
+    pid_t child1=fork();
+    if(child1==-1){
+        perror("fork1 failed error");
+        exit(EXIT_FAILURE);
+    }
+    if(child1==0){
+        dup2(pipefd1[1], STDOUT_FILENO);
+        close(pipefd1[1]);
+        close(pipefd1[0]);
+        close(pipefd2[1]); // Close the read end of pipe2
+        close(pipefd2[0]);
+        close(pipefd3[1]);
+        close(pipefd3[0]);
+        execute_helper(command1);
+        
+        perror("child1 execution failed error");
+        exit(EXIT_FAILURE);
+    }
+    else{
+        pid_t child2=fork();
+        if(child2==-1){
+            perror("fork2 failed error");
+            exit(EXIT_FAILURE);
+        }
+        if(child2==0){
+            dup2(pipefd1[0], STDIN_FILENO);
+            dup2(pipefd2[1], STDOUT_FILENO);
+            close(pipefd1[1]);
+            close(pipefd1[0]);
+            close(pipefd2[1]);
+            close(pipefd2[0]);
+            close(pipefd3[1]);
+            close(pipefd3[0]);
+            execute_helper(command2);
+            
+            perror("child2 execution failed error");
+            exit(EXIT_FAILURE);
+        }
+        else{
+            pid_t child3=fork();
+            if(child3==-1){
+                perror("fork3 failed error");
+                exit(EXIT_FAILURE);
+            }
+            if(child3==0){
+                dup2(pipefd2[0], STDIN_FILENO);
+                dup2(pipefd3[1], STDOUT_FILENO);
+                close(pipefd1[1]);
+                close(pipefd1[0]);
+                close(pipefd2[1]);
+                close(pipefd2[0]);
+                close(pipefd3[1]);
+                close(pipefd3[0]);
+                execute_helper(command3);
+                
+                perror("child3 execution failed error");
+                exit(EXIT_FAILURE);
+            }
+            else{
+                pid_t child4=fork();
+                if(child4==-1){
+                    perror("fork4 failed error");
+                    exit(EXIT_FAILURE);
+                }
+                if (child4==0)
+                {
+                    dup2(pipefd3[0], STDIN_FILENO);
+                    close(pipefd1[1]);
+                    close(pipefd1[0]);
+                    close(pipefd2[1]);
+                    close(pipefd2[0]);
+                    close(pipefd3[1]);
+                    close(pipefd3[0]);
+                    execute_helper(command4);
+                    
+                    perror("child4 execution failed error");
+                    exit(EXIT_FAILURE);
+                }
+                else
+                {
+                    close(pipefd1[0]);
+                    close(pipefd1[1]);
+                    close(pipefd2[0]);
+                    close(pipefd2[1]);
+                    close(pipefd3[0]);
+                    close(pipefd3[1]);
+                    wait(NULL);
+                    wait(NULL);
+                    wait(NULL);
+                    wait(NULL);
+                    return 0;
+                }
+            }
+        }
+    } 
+    
+}
+
+
 
 
 int execute_command(char *input) {
@@ -239,7 +438,8 @@ int execute_command(char *input) {
     char **commands =create_args(input, " | ");
 
     free(buffer);
-
+    printf("pipe count: %d\n", pipe_count);
+    printf("commands: %s, %s, %s, %s\n", commands[0],commands[1],commands[2],commands[3]);
     
     if (pipe_count == 0) 
     {   
@@ -251,19 +451,19 @@ int execute_command(char *input) {
         
         execute_one_pipe(commands[0], commands[1]);
     } 
-    /*
     else if (pipe_count == 2) 
     {
-        execute_two_commands(commands[0], commands[1], commands[2]);
+        execute_two_pipes(commands[0], commands[1], commands[2]);
     } 
     else if (pipe_count == 3)
     {
-        execute_three_commands(commands[0], commands[1], commands[2], commands[3]);
+        execute_three_pipes(commands[0], commands[1], commands[2], commands[3]);
     }
-    */
     free(commands);
 
     return 0;
 }
+
+
 
 
