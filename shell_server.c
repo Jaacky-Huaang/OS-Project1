@@ -17,6 +17,12 @@ int main()
 	int server_socket;
 	server_socket = socket(AF_INET , SOCK_STREAM,0);
 
+	if(setsockopt(server_socket, SOL_SOCKET,SO_REUSEADDR,&(int){1},sizeof(int))<0)
+    {
+        perror("setsockopt error");
+        exit(EXIT_FAILURE);
+    }
+
 	//check for fail error
 	if (server_socket == -1) {
         printf("socket creation failed..\n");
@@ -51,10 +57,12 @@ int main()
 	}
 	 else
     	printf("Server: socket LISTEN success..\n");
+
 	// loop for continuously accepting connections and executing commands
 	while (1) {
 		// accept a connection
 		int addrlen = sizeof(server_address);	
+		FILE *fp;
     	int client_socket = accept(server_socket, (struct sockaddr *) &server_address, (socklen_t *)&addrlen);
     	if (client_socket < 0) { // error checking for accept
         	printf("accept failed...\n");
@@ -72,13 +80,37 @@ int main()
 			// Null terminate the string to avoid printing garbage.
 			command[bytes_received] = '\0';
         	if (strncmp("exit", command, 4) == 0) { // Exit the shell if the user enters "exit" or "quit"
-            	printf("Server Exit...\n");
+            	printf("Client Exit...\n");
             	break;
         	}
 			// Execute the command and output in the server
-        	printf("Server output:\n");
-			execute_command(command);
+        	//printf("Server output:\n");
+
+			fp = fopen("_output.txt", "w+");
+			if (fp == NULL) {
+				perror("Error opening file");
+				return -1;
+			}
+			execute_command(command, fileno(fp));
+
+			fflush(fp); // Renew the file buffer
+			// Send the output file to the client
+			char buffer[2048];
+			int fd = open("_output.txt", O_RDONLY);
+			if (fd < 0) {
+				perror("Error opening file");
+				return -1;
+			}
 			
+			int bytes_read = read(fd, buffer, sizeof(buffer));
+			if (bytes_read <= 0) {
+				break;
+			}
+			send(client_socket, buffer, bytes_read, 0);
+			printf("Server: message SEND success..\n");
+
+			fclose(fp); // Close the file descriptor
+
     	}
 	}
     close(server_socket); // Close the socket
