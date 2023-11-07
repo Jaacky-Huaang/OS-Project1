@@ -49,22 +49,30 @@ char **create_args(const char *command, const char *separator) {
 
 //_______________________________________________________________________________________
 
-int input_redirect(char *command)
+int input_redirect(char *command, int output_fd)
 {   
     char **args = create_args(command, " < "); // create arguments for the command, input redirection so we use <
     char *sub_command = args[0]; // the command
     char *input_file = args[1];  // the input file for the redirection
 
-    int fd = open(input_file, O_RDONLY);  // open the input file
+    int input_fd = open(input_file, O_RDONLY);  // open the input file
 
-    if (fd < 0) { // Make sure the file was opened successfully
+    if (input_fd < 0) { // Make sure the file was opened successfully
         perror("Failed to open input file");
         exit(1);
     }
 
     char **sub_args = create_args(sub_command, " ");//create arguments for the command
-    dup2(fd, STDIN_FILENO);  // duplicate file descriptor to stdin
-    close(fd);  // close the original file descriptor
+    dup2(input_fd, STDIN_FILENO);  // duplicate file descriptor to stdin
+    close(input_fd);  // close the original file descriptor
+
+    if (output_fd != -1) 
+    {   // If output_fd is valid, redirect stdout and stderr to it
+        dup2(output_fd, STDOUT_FILENO);
+        dup2(output_fd, STDERR_FILENO);
+        close(output_fd); // Close the duplicated file descriptor
+    }
+
     execvp(sub_args[0], sub_args);  // execute the command
     free(args); // Free the memory allocated for the arguments
     free(sub_args); 
@@ -73,7 +81,6 @@ int input_redirect(char *command)
     return 0;
 }
 
-
 int output_redirect(char *command)
 {   
     //redirecting output
@@ -81,7 +88,7 @@ int output_redirect(char *command)
     char *sub_command = args[0]; // the command
     char *output_file = args[1]; // the output file for the redirection
 
-    int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);  // open the input file, googled convention
+    int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);  // open the output file, googled convention
     if (fd < 0) { // Make sure the file was opened successfully
         perror("Failed to open input file");
         exit(1);
@@ -100,7 +107,9 @@ int output_redirect(char *command)
     
 }
 
-int error_redirect(char *command) {   
+int error_redirect(char *command) 
+{   
+    
     char **args = create_args(command, " 2> "); // create arguments for the command, error redirection so we use 2>
     char *sub_command = args[0]; // the command
     char *error_file = args[1]; // the error file for the redirection
@@ -122,13 +131,14 @@ int error_redirect(char *command) {
     exit(1);
     return 0;
 }
+
 // function to execute the single command[no pipe, one redirection or no redirection], designed to be reused in the pipe function
 int execute_helper(char *command) 
 {
 
     if (strchr(command, '<') )//if the command contains <, then it is an input redirection
     {
-        return input_redirect(command); // redirect input
+        return input_redirect(command, -1); // redirect input
     }
 
     else if (strstr(command, "2>") ) // if the command contains 2>, then it is an error redirection
@@ -154,9 +164,61 @@ int execute_helper(char *command)
     return 1; // Return 1 to continue the shell
 }
 
+// function to execute the single command[no pipe, one redirection or no redirection], designed to be reused in the pipe function
+int new_execute_helper(char *command, int output_fd)
+{
+    char msg[] = "Output redirection, no responce from server\n";
+    if (strchr(command, '<') )//if the command contains <, then it is an input redirection
+    {
+        
+        return input_redirect(command, output_fd); // redirect input
+    }
+
+    else if (strstr(command, "2>") ) // if the command contains 2>, then it is an error redirection
+    {
+        //leave the msg in the output file
+        write(output_fd, msg, strlen(msg));
+        return error_redirect(command); // Redirect stderr to the error file
+    }
+
+    else if (strchr(command, '>')  ) // if the command contains >, then it is an output redirection
+    {
+        //leave the msg in the output file
+        write(output_fd, msg, strlen(msg));
+        return output_redirect(command); // redirect output
+    }
+
+    else if (output_fd != -1)// If output_fd is valid, redirect stdout and stderr to it
+    {
+        dup2(output_fd, STDOUT_FILENO);
+        dup2(output_fd, STDERR_FILENO);
+
+        char **args = create_args(command, " ");//if we do not have >, <, 2>, then we just create arguments for the command, split based on space
+        if (execvp(args[0], args) == -1) { // Execute the command
+            perror("Error executing command");
+            exit(EXIT_FAILURE); // Only the child exits
+        }
+
+        free(args); // Free the memory allocated for the arguments
+        close(output_fd); // Close the duplicated file descriptor
+    }
+
+    else // if the command does not contain any redirection, then we just execute the command
+    { 
+        char **args = create_args(command, " ");//if we do not have >, <, 2>, then we just create arguments for the command, split based on space
+        if (execvp(args[0], args) == -1) { // Execute the command
+            perror("Error executing command");
+            exit(EXIT_FAILURE); // Only the child exits
+        }
+
+        free(args); // Free the memory allocated for the arguments
+    }
+    return 1; // Return 1 to continue the shell
+}
+
 //command
 //execute a single command without any pipes or just maximum one redirection
-int execute_single_command(char *command) 
+int execute_single_command(char *command, int output_fd) 
 {
 
     pid_t pid = fork();//fork a child process so not to interrupt the main process
@@ -165,7 +227,7 @@ int execute_single_command(char *command)
         exit(EXIT_FAILURE);
     } 
     if (pid == 0) { // Child process
-        execute_helper(command);
+        new_execute_helper(command, output_fd);
     } else { // Parent process
         wait(NULL); // Wait for child process to finish
     }
@@ -173,7 +235,7 @@ int execute_single_command(char *command)
 }
 
 //command1 | command2
-int execute_one_pipe(char *command1, char *command2) {
+int execute_one_pipe(char *command1, char *command2, int output_fd) {
     
     int pipefd[2];//create a pipe
 
@@ -201,7 +263,7 @@ int execute_one_pipe(char *command1, char *command2) {
     if (pid2 == 0) { // Child process for command2
         close(pipefd[1]);//close the write end of the pipe
         dup2(pipefd[0], STDIN_FILENO);//replace stdin with the read end of the pipe
-        execute_helper(command2);//execute command2
+        new_execute_helper(command2, output_fd);//execute command2
         
     }
 
@@ -212,8 +274,9 @@ int execute_one_pipe(char *command1, char *command2) {
 
     return 0;
 }
+
 // command1 | command2 | command3
-int execute_two_pipes(char *command1, char *command2, char *command3) {
+int execute_two_pipes(char *command1, char *command2, char *command3, int output_fd) {
    int pipefd1[2]; // create two pipes
    int pipefd2[2];
    if (pipe(pipefd1) == -1) { // Make sure the pipe was created successfully
@@ -269,7 +332,7 @@ int execute_two_pipes(char *command1, char *command2, char *command3) {
                     close(pipefd1[0]); // Close the read end of pipe1
                     close(pipefd2[1]); // Close the write end of pipe2
                     close(pipefd2[0]); // Close the read end of pipe2
-                    execute_helper(command3); // execute command3
+                    new_execute_helper(command3, output_fd); // execute command3
                     perror("child3 execution failed error"); // error handling
                     exit(EXIT_FAILURE);
                 }
@@ -290,7 +353,7 @@ int execute_two_pipes(char *command1, char *command2, char *command3) {
 }
 
 // command1 | command2 | command3 | command4
-int execute_three_pipes(char *command1, char *command2, char *command3, char *command4) {
+int execute_three_pipes(char *command1, char *command2, char *command3, char *command4, int output_fd) {
    int pipefd1[2]; // create three pipes
    int pipefd2[2];
    int pipefd3[2];
@@ -379,7 +442,7 @@ int execute_three_pipes(char *command1, char *command2, char *command3, char *co
                     close(pipefd2[0]); // Close the read end of pipe2
                     close(pipefd3[1]); // Close the read end of pipe3
                     close(pipefd3[0]); // Close the write end of pipe3
-                    execute_helper(command4); // execute command4
+                    new_execute_helper(command4, output_fd); // execute command4
                     
                     perror("child4 execution failed error"); // error handling
                     exit(EXIT_FAILURE);
@@ -404,7 +467,8 @@ int execute_three_pipes(char *command1, char *command2, char *command3, char *co
 }
 
 // Execute the user's command [ovrall function]
-int execute_command(char *input) {
+int execute_command(char *input, int fd) 
+{
 
     int pipe_count = 0;         // Number of pipes in the command
  
@@ -440,23 +504,23 @@ int execute_command(char *input) {
     }
     if (pipe_count == 0) // if there is no pipe, then we just execute the single command
     {   
-        execute_single_command(commands[0]);
+        execute_single_command(commands[0], fd);
     } 
-    
     else if (pipe_count == 1) // if there is one pipe, then we execute the two commands
     {   
         
-        execute_one_pipe(commands[0], commands[1]);
+        execute_one_pipe(commands[0], commands[1], fd);
     } 
     else if (pipe_count == 2) // if there are two pipes, then we execute the three commands
     {
-        execute_two_pipes(commands[0], commands[1], commands[2]);
+        execute_two_pipes(commands[0], commands[1], commands[2], fd);
     } 
     else if (pipe_count == 3) // if there are three pipes, then we execute the four commands
     {
-        execute_three_pipes(commands[0], commands[1], commands[2], commands[3]);
+        execute_three_pipes(commands[0], commands[1], commands[2], commands[3], fd);
     }
     free(commands); // Free the memory allocated for the commands
+    
 
     return 0;
 }
