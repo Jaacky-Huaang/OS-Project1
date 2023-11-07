@@ -51,7 +51,31 @@ int main() {
             printf("Exiting MyShell...\n");
             break;
         }
+
+        // Receive the output from the server
+        char output[2048];
+        memset(output, 0, sizeof(output));  // 初始化buffer，将所有字节设置为0
+
+        int bytes_received = recv(client_socket, output, sizeof(output) - 1, 0); // 留出一个字节用于空字符
+        if (bytes_received == -1) {
+            // Check for error
+            perror("Error receiving output");
+            break;
+        } 
+        else if (bytes_received == 0)
+         {
+            // Nothing received
+            printf("No message back\n");
+            break;
         }
+        else 
+        {
+            output[bytes_received] = '\0'; // 确保字符串以空字符结尾
+        }
+        // Print the output
+        printf("Server responce:\n");
+        printf("%s\n", output);
+    }
     close(client_socket); // Close the socket
     return 0;
 }
