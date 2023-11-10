@@ -5,4 +5,4 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-int execute_command(char *command);
+int execute_command(char *command, int fd);

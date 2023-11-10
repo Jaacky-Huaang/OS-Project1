@@ -74,7 +74,7 @@ int main() {
         }
         // Print the output
         printf("Server responce:\n");
-        printf("%s\n", output);
+        printf("%s", output);
     }
     close(client_socket); // Close the socket
     return 0;
