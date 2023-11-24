@@ -3,14 +3,27 @@
 #include <unistd.h> 
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <pthread.h>
+
+#include <string.h>
+#include <fcntl.h>
+#include <pwd.h>
+#include <dirent.h>
+#include <sys/mman.h>
+#include<semaphore.h>
+
+#include "linked_list.h"
 # include "execute_command.h"
 
 #define PORT 6000
+
+
 
 void *handle_client(void *arg);
 int main()
@@ -104,30 +117,32 @@ void *handle_client(void *arg){
         	break;
     	}
 		// Execute the command and output in the server
-        //printf("Server output:\n");
 
-		fp = fopen("_output.txt", "w+");
+		fp = fopen("_temp.txt", "w+"); //open the file to capture the output
 		// fp=fdopen(s,"w+");
-		if (fp == NULL) {
+		if (fp == NULL) 
+		{
 			perror("Error opening file");
 			exit(EXIT_FAILURE);
 		}
-		execute_command(command, fileno(fp));
-
+		execute_command(command, fileno(fp));//execute the command and output in the file
+		
 		fflush(fp); // Renew the file buffer
+		fclose(fp); // Close the file descriptor
+
 		// Send the output file to the client
 		char buffer[2048];
-		int fd = open("_output.txt", O_RDONLY);
+		int fd = open("_temp.txt", O_RDONLY);//open the file to access the output
 		if (fd < 0) {
 			perror("Error opening file");
 			exit(EXIT_FAILURE);
 		}
 			
-		int bytes_read = read(fd, buffer, sizeof(buffer));
+		int bytes_read = read(fd, buffer, sizeof(buffer));//read the output from the file
 		if (bytes_read <= 0) {
 			break;
 		}
-		send(s, buffer, bytes_read, 0);
+		send(s, buffer, bytes_read, 0);//send the output to the client
 		printf("Server: message SEND success..\n");
 		fclose(fp); // Close the file descriptor
 		
