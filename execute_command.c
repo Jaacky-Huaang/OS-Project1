@@ -81,31 +81,68 @@ int input_redirect(char *command, int output_fd)
     return 0;
 }
 
-int output_redirect(char *command)
-{   
-    //redirecting output
-    char **args = create_args(command, " > "); // create arguments for the command, output redirection so we use >
-    char *sub_command = args[0]; // the command
-    char *output_file = args[1]; // the output file for the redirection
 
-    int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);  // open the output file, googled convention
-    if (fd < 0) { // Make sure the file was opened successfully
-        perror("Failed to open input file");
-        exit(1);
+
+int output_redirect(char *command) {
+    // Redirect output
+    char **args = create_args(command, " > "); // Create arguments for the command, using > for output redirection
+    if (args == NULL) {
+        perror("Failed to create arguments");
+        return -1;
+    }
+
+    char *sub_command = args[0]; // Subcommand
+    char *output_file = args[1]; // Redirected output file
+
+    int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);  // Open the output file
+    if (fd < 0) { // Ensure the file is successfully opened
+        perror("Failed to open output file");
+        free(args); // Free memory for arguments
+        return -1;
     }
 
     char **sub_args = create_args(sub_command, " ");
+    if (sub_args == NULL) {
+        perror("Failed to create sub-arguments");
+        close(fd);
+        free(args);
+        return -1;
+    }
 
-    dup2(fd, STDOUT_FILENO);  // duplicate file descriptor to stdout
-    close(fd);  // close the original file descriptor
-    execvp(sub_args[0], sub_args);  // execute the command
-    free(args); // Free the memory allocated for the arguments
+    pid_t pid = fork(); // Create a child process
+    if (pid < 0) {
+        perror("Failed to fork");
+        close(fd);
+        free(args);
+        free(sub_args);
+        return -1;
+    }
+
+    if (pid == 0) { // Child process
+        dup2(fd, STDOUT_FILENO);  // Duplicate file descriptor to stdout
+        close(fd);  // Close the original file descriptor
+
+        if (execvp(sub_args[0], sub_args) < 0) {  // Execute the command
+            perror("Exec failed");
+            exit(EXIT_FAILURE);  // Exit the child process if execvp fails
+        }
+    } else { // Parent process
+        int status;
+        close(fd); // Close the file descriptor in the parent process
+        waitpid(pid, &status, 0);  // Wait for the child process to finish
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            perror("Sub-command execution failed");
+            free(args);
+            free(sub_args);
+            return -1;
+        }
+    }
+
+    free(args); // Free memory
     free(sub_args);
-    perror("Exec failed");  // execvp will only return if there's an error
-    exit(1);
-    return 0;
-    
+    return 0;  // Successfully executed
 }
+
 
 int error_redirect(char *command) 
 {   
@@ -168,6 +205,7 @@ int execute_helper(char *command)
 int new_execute_helper(char *command, int output_fd)
 {
     char msg[] = "Output redirection, no responce from server\n";
+    char msg2[] = "Error executing output redirection: invalid command\n";
     if (strchr(command, '<') )//if the command contains <, then it is an input redirection
     {
         
@@ -183,9 +221,16 @@ int new_execute_helper(char *command, int output_fd)
 
     else if (strchr(command, '>')  ) // if the command contains >, then it is an output redirection
     {
-        //leave the msg in the output file
-        write(output_fd, msg, strlen(msg));
-        return output_redirect(command); // redirect output
+        int output_status = output_redirect(command); // redirect output
+        if (output_status == -1)
+        {
+            write(output_fd, msg2, strlen(msg2));
+        }
+        else
+        {
+            write(output_fd, msg, strlen(msg));
+        }
+        return output_status;
     }
 
     else if (output_fd != -1)// If output_fd is valid, redirect stdout and stderr to it
