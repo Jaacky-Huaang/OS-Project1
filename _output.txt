@@ -6,7 +6,6 @@ a.txt
 execute_command.c
 execute_command.h
 execute_command.o
-new
 shell_framework
 shell_framework.c
 shell_framework.o
