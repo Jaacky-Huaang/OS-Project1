@@ -204,9 +204,11 @@ void *handle_client(void *args){
 		if (bytes_received <= 0) { // error checking for recv
             // The client has disconnected.
 			printf("client id %d disconnected\n", s);
-            close(s);
-			// TODO: add delete process with the client id!
-
+			// NEW!!! add delete process with the client id!
+			while(search_node(arguments->my_list, pthread_self())!=NULL){
+				delete_node(&arguments->my_list, pthread_self());
+			}
+			close(s);
             break;
         }
 		// Null terminate the string to avoid printing garbage.
