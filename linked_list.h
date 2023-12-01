@@ -11,11 +11,13 @@ typedef struct node {
     int remaining_time; 
     // The shell command's time will be set to -1
     // The program's time will decrement by 1 every second
+    int round; // The round of the client
+    int runned_time; // The runned time of the client
     struct node *next;
 } node;
 
 // Function prototypes
-node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int remaining_time);
+node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int remaining_time,int round,int runned_time);
 void tail_insert(node **head, node *new_node);
 void head_insert(node **head, node *new_node);
 void delete_node(node **head, pthread_t thread_id);

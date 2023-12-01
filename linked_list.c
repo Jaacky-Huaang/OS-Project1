@@ -26,13 +26,15 @@ typedef struct node
     int semaphore_id; // semaphore id
     char input[1024]; // the message the client input
     int remaining_time; 
+    int round; // the round of the client
     // The shell command's time will be set to -1
     // The program's time will decrement by 1 every second
+    int runned_time; // the runned time of the client
     struct node *next;
 } node;
 
 // strict?
-node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int remaining_time)
+node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int remaining_time, int round,int runned_time)
 {
     node* new_node = (node*)malloc(sizeof(node));//要记得free!
     memset(new_node, 0, sizeof(node));
@@ -41,6 +43,8 @@ node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int r
     strcpy(new_node->input, input);
     new_node->remaining_time = remaining_time;
     new_node->next = NULL;
+    new_node->round = round;
+    new_node->runned_time = runned_time;
     return new_node;
 }
 
