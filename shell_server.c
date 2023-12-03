@@ -37,7 +37,7 @@ void *manage_process(void *link_list);
 int main()
 {
 	//create socket
-	node *my_list = create_node(0, -1,"header",0,0,0); // Initialize the linked list
+	node *my_list = create_node(0, -1,"header",0,0,0,0); // Initialize the linked list
     // NEW!!! manager thread
     pthread_t thread_id;
     int rc;
@@ -124,8 +124,7 @@ void *manage_process(void *link_list){
 	node *my_list = (node*)link_list;
 	printf("main thread starts working!\n");
 	node *next_node = my_list->next;
-	node *node_to_begin = next_node;
-	node *prev_run=node_to_begin;
+	
 	int finish_flag = 0;
 	while(1){
 		finish_flag = 0;
@@ -135,7 +134,9 @@ void *manage_process(void *link_list){
             sleep(1);
             continue;
         }
-		else if(next_node->remaining_time == -1){ // if the command is a shell command
+		node *node_to_begin = next_node;
+		node *prev_run=node_to_begin;
+		if(next_node->remaining_time == -1){ // if the command is a shell command
 			sem_post(&sem_client[next_node->semaphore_id]);
 			delete_node(&my_list, next_node->thread_id);
 			finish_flag = 1;
@@ -150,6 +151,7 @@ void *manage_process(void *link_list){
 				}
 				current = current->next; 
         	}
+			node_to_begin->total_progress++;
 			if (node_to_begin->remaining_time <= 1){ // if the remaining time is 1, delete the node and the execution ends
 				sem_post(&sem_client[node_to_begin->semaphore_id]);
 				finish_flag = 1;
@@ -181,182 +183,99 @@ void *manage_process(void *link_list){
 				}
 			} 	
 			}
+		char buffer[256]; // 根据需要的大小调整缓冲区
+		int length = snprintf(buffer, sizeof(buffer), "demo: %d/%d\n", node_to_begin->total_progress, node_to_begin->total_time);
+
+		printf("after this second: demo %d/%d\n", node_to_begin->total_progress, node_to_begin->total_time);
+
+		// get the client socket
+		int client_socket = node_to_begin->socket;
+		send(client_socket, buffer, length, 0); // 将字符串发送给客户端
+		
 		sleep(1); // sleep for 1 second
 		if (finish_flag!=1){ // if the node is not completed, check again
 			sem_wait(&sem_client[node_to_begin->semaphore_id]); // wait for the client to finish
 			prev_run=node_to_begin; // prev_run should be the node which runs, this is the value when the node is not completed
 		}
 		else{
+			send(client_socket, "finish", sizeof("finish"), 0);
 			prev_run=next_node; // prev_run should be the node which runs, this is the value when the node is completed
 		}
 	}	
 }
 
 // NEW!!! new version
-void *handle_client(void *args){
+void *handle_client(void *args)
+{
 	struct client_arg *arguments = args;
-	int s = arguments->new_socket; // dereference socket
+	int client_socket = arguments->new_socket; // dereference socket
+	pthread_t thread_id = pthread_self();
 	int flag = arguments->my_flag; 
-	FILE *fp;
-	while (1) { // loop for continuously receiving commands
+
+	printf("[%d]<<< client connected\n", flag);
+
+	while (1) 
+	{ // loop for continuously receiving commands
         char command[1024];
-    	ssize_t bytes_received=recv(s, command, sizeof(command), 0);
-		if (bytes_received <= 0) { // error checking for recv
+    	ssize_t bytes_received=recv(client_socket, command, sizeof(command), 0);
+		if (bytes_received <= 0) 
+		{ // error checking for recv
             // The client has disconnected.
-			printf("client id %d disconnected\n", s);
+			printf("[%d]<<< client connected\n", flag);
 			// NEW!!! add delete process with the client id!
 			while(search_node(arguments->my_list, pthread_self())!=NULL){
 				delete_node(&arguments->my_list, pthread_self());
 			}
-			close(s);
+			close(client_socket);
             break;
         }
 		// Null terminate the string to avoid printing garbage.
 		command[bytes_received] = '\0';
         if (strncmp("exit", command, 4) == 0||strncmp("quit", command, 4) == 0) { // Exit the shell if the user enters "exit" or "quit"
-            printf("Client Exit...\n");
+            printf("[%d]<<< client connected\n", flag);
 			// NEW!!! add delete process with the client id!
 			while(search_node(arguments->my_list, pthread_self())!=NULL){
 				delete_node(&arguments->my_list, pthread_self());
 			}
         	break;
     	}
-		//NEW!!! add the command to the linked list
+		printf("[%d]>>> %s\n", flag, command);
+
+		//NEW!!! add the command to the linked list --------------------------------------------------------------------------------
 		int remaining_time = 0;
-		if (command[0]!='.' && command[1]!='/'){
-			head_insert(&arguments->my_list, create_node(s, flag, command, -1, 0,0));
-		}
-		else if(command[0]=='.' && command[1]=='/' &&command[2]!='d'&&command[3]!='e'&&command[4]!='m'&&command[5]!='o'){
-			remaining_time =1;
-			tail_insert(&arguments->my_list, create_node(s, flag, command, remaining_time, 0,0));
-		}
-		else if (command[0]=='.' && command[1]=='/' &&command[2]=='d'&&command[3]=='e'&&command[4]=='m'&&command[5]=='o'){
-			if (sscanf(command, "./loop %d", &remaining_time) == 1) {
-				// Successfully extracted the integer
-				printf("Remaining time: %d\n", remaining_time,0);
-			}
-			tail_insert(&arguments->my_list, create_node(s, flag, command, remaining_time, 0,0));
-		}
-		sem_wait(&sem_client[flag]);
-		// TODO: change fp to directly dup to socket
-		fp = fopen("_temp.txt", "w+"); //open the file to capture the output
-		// fp=fdopen(s,"w+");
-		if (fp == NULL) 
+		if (command[0]!='.' && command[1]!='/')
 		{
-			perror("Error opening file");
-			exit(EXIT_FAILURE);
+			head_insert(&arguments->my_list, create_node(thread_id, flag, command, -1, 1,0, client_socket));
+			printf("[%d]--- created (%d)\n", flag, -1);
+			sem_wait(&sem_client[flag]);
+			printf("[%d]--- started (%d)\n", flag, -1);
+			execute_command(command, client_socket);//execute the command and output in the file
+			printf("[%d]<<< output sent (%d)\n", flag, -1);
+			send(client_socket, "finish", sizeof("finish"), 0);
+			printf("[%d]--- ended (%d)\n", flag, -1);
 		}
-		execute_command(command, fileno(fp));//execute the command and output in the file
+		else if(command[0]=='.' && command[1]=='/' &&command[2]!='d'&&command[3]!='e'&&command[4]!='m'&&command[5]!='o')
+		{	
+			printf("in thread %p: this is the rest program\n", (void*)thread_id);
+			remaining_time =1;
+			printf("[%d]--- created (%d)\n", flag, remaining_time);
+			tail_insert(&arguments->my_list, create_node(thread_id, flag, command, remaining_time, 1,0, client_socket));
+			sem_wait(&sem_client[flag]);
+			execute_command(command, client_socket);//execute the command and output in the file
+		}
+		else if (command[0]=='.' && command[1]=='/' &&command[2]=='d'&&command[3]=='e'&&command[4]=='m'&&command[5]=='o')
+		{
+			printf("in thread %p: this is the demo program\n", (void*)thread_id);
+			sscanf(command, "./demo %d", &remaining_time);
+			printf("[%d]--- created (%d)\n", flag, remaining_time);
+			tail_insert(&arguments->my_list, create_node(thread_id, flag, command, remaining_time, 1,0, client_socket));
+			sem_wait(&sem_client[flag]);
+		}
 		
-		fflush(fp); // Renew the file buffer
-		fclose(fp); // Close the file descriptor
-		// Send the output file to the client
-		char buffer[2048];
-		int fd = open("_temp.txt", O_RDONLY);//open the file to access the output
-		if (fd < 0) {
-			perror("Error opening file");
-			exit(EXIT_FAILURE);
-		}	
-		int bytes_read = read(fd, buffer, sizeof(buffer));//read the output from the file
-		if (bytes_read <= 0) {
-			// NEW!!! add delete process with the client id!
-			while(search_node(arguments->my_list, pthread_self())!=NULL){
-				delete_node(&arguments->my_list, pthread_self());
-			}
-			break;
-		}		
-		send(s, buffer, bytes_read, 0);//send the output to the client
-		printf("Server: message SEND success..\n");
-		fclose(fp); // Close the file descriptor	
+		// -------------------------------------------------------------------------------------------------------------------
 	}
-	close(s);
+	close(client_socket);
+	free(arguments);
 	pthread_exit(NULL);
 }
 
-
-
-
-// // Execute the command and output in the server
-
-// 		fp = fopen("_temp.txt", "w+"); //open the file to capture the output
-// 		// fp=fdopen(s,"w+");
-// 		if (fp == NULL) 
-// 		{
-// 			perror("Error opening file");
-// 			exit(EXIT_FAILURE);
-// 		}
-// 		execute_command(command, fileno(fp));//execute the command and output in the file
-		
-// 		fflush(fp); // Renew the file buffer
-// 		fclose(fp); // Close the file descriptor
-
-// 		// Send the output file to the client
-// 		char buffer[2048];
-// 		int fd = open("_temp.txt", O_RDONLY);//open the file to access the output
-// 		if (fd < 0) {
-// 			perror("Error opening file");
-// 			exit(EXIT_FAILURE);
-// 		}
-			
-// 		int bytes_read = read(fd, buffer, sizeof(buffer));//read the output from the file
-// 		if (bytes_read <= 0) {
-// 			break;
-// 		}
-// 		send(s, buffer, bytes_read, 0);//send the output to the client
-// 		printf("Server: message SEND success..\n");
-// 		fclose(fp); // Close the file descriptor
-
-// // old version
-// void *handle_client(void *arg){
-// 	int *client_socket = (int *)arg;
-// 	int s=*client_socket; // dereference socket
-// 	FILE *fp;
-// 	while (1) { // loop for continuously receiving commands
-//         char command[1024];
-//     	ssize_t bytes_received=recv(s, command, sizeof(command), 0);
-// 		if (bytes_received <= 0) { // error checking for recv
-//             // The client has disconnected.
-//             close(s);
-// 			// TODO: add delete process with the client id!
-//             break;
-//         }
-// 		// Null terminate the string to avoid printing garbage.
-// 		command[bytes_received] = '\0';
-//         if (strncmp("exit", command, 4) == 0) { // Exit the shell if the user enters "exit" or "quit"
-//             printf("Client Exit...\n");
-//         	break;
-//     	}
-// 		// Execute the command and output in the server
-
-// 		fp = fopen("_temp.txt", "w+"); //open the file to capture the output
-// 		// fp=fdopen(s,"w+");
-// 		if (fp == NULL) 
-// 		{
-// 			perror("Error opening file");
-// 			exit(EXIT_FAILURE);
-// 		}
-// 		execute_command(command, fileno(fp));//execute the command and output in the file
-		
-// 		fflush(fp); // Renew the file buffer
-// 		fclose(fp); // Close the file descriptor
-
-// 		// Send the output file to the client
-// 		char buffer[2048];
-// 		int fd = open("_temp.txt", O_RDONLY);//open the file to access the output
-// 		if (fd < 0) {
-// 			perror("Error opening file");
-// 			exit(EXIT_FAILURE);
-// 		}
-			
-// 		int bytes_read = read(fd, buffer, sizeof(buffer));//read the output from the file
-// 		if (bytes_read <= 0) {
-// 			break;
-// 		}
-// 		send(s, buffer, bytes_read, 0);//send the output to the client
-// 		printf("Server: message SEND success..\n");
-// 		fclose(fp); // Close the file descriptor
-		
-// 	}
-// 	close(s);
-// 	pthread_exit(NULL);
-// }
