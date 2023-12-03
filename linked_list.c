@@ -30,11 +30,15 @@ typedef struct node
     // The shell command's time will be set to -1
     // The program's time will decrement by 1 every second
     int runned_time; // the runned time of the client
+    int total_time;
+    int total_progress;
     struct node *next;
+    int socket;
+    int client_id;
 } node;
 
 // strict?
-node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int remaining_time, int round,int runned_time)
+node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int remaining_time, int round,int runned_time, int socket)
 {
     node* new_node = (node*)malloc(sizeof(node));//要记得free!
     memset(new_node, 0, sizeof(node));
@@ -45,6 +49,10 @@ node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int r
     new_node->next = NULL;
     new_node->round = round;
     new_node->runned_time = runned_time;
+    new_node->total_time = remaining_time;
+    new_node->total_progress =0;
+    new_node->socket = socket;
+    new_node->client_id = semaphore_id;
     return new_node;
 }
 
@@ -139,10 +147,13 @@ node *search_node(node *head, pthread_t thread_id)
 
 void print_node(const node *n) 
 {
+    //skip header
+    n = n->next;
     if (n != NULL) 
     {
-        printf("Thread ID: %lu, Semaphore ID: %d, Input: %s, Remaining Time: %d\n",
-               (unsigned long)n->thread_id, n->semaphore_id, n->input, n->remaining_time);
+        printf("Thread ID: %lu, Semaphore ID: %d, Input: %s, Remaining Time: %d\n, Round: %d, Runned Time: %d\n", 
+                n->thread_id, n->semaphore_id, n->input, n->remaining_time,n->round,n->runned_time);
+               
     }
     else 
     {
@@ -158,6 +169,18 @@ void print_list(const node *head)
         print_node(current);
         current = current->next;
     }
+}
+
+int get_list_length(const node *head) 
+{
+    int length = 0;
+    const node *current = head;
+    while (current != NULL) 
+    {
+        length++;
+        current = current->next;
+    }
+    return length;
 }
 
 
