@@ -154,6 +154,8 @@ void *manage_process(void *link_list)
 
 	int min_time;
 	int second_min_time;
+
+	int client_socket;
 	
 	//this is the flag to indicate whether the process is finished
 	int finish_flag = 0;
@@ -346,15 +348,20 @@ void *manage_process(void *link_list)
 			node_to_begin->remaining_time--; // decrement the remaining time for simulation purpose
 			node_to_begin->total_progress++; // increment the total time run for simulation purpose
 
-			char buffer[256]; //prepare the output that needs to be sent to the client
-			int length = snprintf(buffer, sizeof(buffer), "demo: %d/%d\n", node_to_begin->total_progress, node_to_begin->total_time);
+			client_socket = node_to_begin->socket;
+
+			// if this is the demo program, we prepare the output to the client
+			if (node_to_begin->input[0]=='.' && node_to_begin->input[1]=='/' &&node_to_begin->input[2]=='d'&&node_to_begin->input[3]=='e'&&node_to_begin->input[4]=='m'&&node_to_begin->input[5]=='o')
+			{
+				char buffer[256];
+				int length = snprintf(buffer, sizeof(buffer), "demo: %d/%d\n", node_to_begin->total_progress, node_to_begin->total_time);
+				send(client_socket, buffer, length, 0);
+				printf("	sent the demo output to the client\n");//send the demo output to the client
+			}
 
 			printf("################# demo %d/%d #######################\n", node_to_begin->total_progress, node_to_begin->total_time);
 			print_list(header);
 
-			// get the client socket
-			int client_socket = node_to_begin->socket;
-			send(client_socket, buffer, length, 0); //send the output to the client
 			sleep(1); // sleep for 1 second for simulation purpose
 
 			if (finish_flag!=1)//if the process has not finished
@@ -428,7 +435,24 @@ void *handle_client(void *args)
 
 		//NEW!!! add the command to the linked list --------------------------------------------------------------------------------
 		int remaining_time = 0;
-		if (command[0]!='.' && command[1]!='/')
+		if (strstr(command, "./demo") != NULL)
+		{
+			printf("in thread %p: this is the demo program\n", (void*)thread_id);
+			sscanf(command, "./demo %d", &remaining_time);
+			printf("[%d]--- created (%d)\n", flag, remaining_time);
+			tail_insert(&arguments->my_list, create_node(thread_id, flag, command, remaining_time, 1,0, client_socket));
+			sem_wait(&sem_client[flag]);
+		}
+		else if(strstr(command, "./") != NULL)
+		{	
+			printf("in thread %p: this is the rest program\n", (void*)thread_id);
+			remaining_time =1;
+			printf("[%d]--- created (%d)\n", flag, remaining_time);
+			tail_insert(&arguments->my_list, create_node(thread_id, flag, command, remaining_time, 1,0, client_socket));
+			sem_wait(&sem_client[flag]);
+			execute_command(command, client_socket);//execute the command and output in the file
+		}
+		else 
 		{
 			head_insert(&arguments->my_list, create_node(thread_id, flag, command, -1, 1,0, client_socket));
 			printf("[%d]--- created (%d)\n", flag, -1);
@@ -439,23 +463,8 @@ void *handle_client(void *args)
 			send(client_socket, "finish", sizeof("finish"), 0);
 			printf("[%d]--- ended (%d)\n", flag, -1);
 		}
-		else if(command[0]=='.' && command[1]=='/' &&command[2]!='d'&&command[3]!='e'&&command[4]!='m'&&command[5]!='o')
-		{	
-			printf("in thread %p: this is the rest program\n", (void*)thread_id);
-			remaining_time =1;
-			printf("[%d]--- created (%d)\n", flag, remaining_time);
-			tail_insert(&arguments->my_list, create_node(thread_id, flag, command, remaining_time, 1,0, client_socket));
-			sem_wait(&sem_client[flag]);
-			execute_command(command, client_socket);//execute the command and output in the file
-		}
-		else if (command[0]=='.' && command[1]=='/' &&command[2]=='d'&&command[3]=='e'&&command[4]=='m'&&command[5]=='o')
-		{
-			printf("in thread %p: this is the demo program\n", (void*)thread_id);
-			sscanf(command, "./demo %d", &remaining_time);
-			printf("[%d]--- created (%d)\n", flag, remaining_time);
-			tail_insert(&arguments->my_list, create_node(thread_id, flag, command, remaining_time, 1,0, client_socket));
-			sem_wait(&sem_client[flag]);
-		}
+		
+
 		
 		// -------------------------------------------------------------------------------------------------------------------
 	}
