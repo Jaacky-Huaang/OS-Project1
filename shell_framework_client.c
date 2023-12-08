@@ -37,7 +37,8 @@ int main() {
     }
     // The user's input
     char input[256];
-    while (1) {
+    while (1) 
+    {
         // ask for a prompt
         printf("$ ");
         scanf(" %[^\n]", input);
@@ -53,34 +54,42 @@ int main() {
         }
 
         // Receive the output from the server
+        // cotinuously receive until the server sends "finish"
         char output[2048];
-        memset(output, 0, sizeof(output));  // initialize the buffer
+        while (1)
+        {   
+            memset(output, 0, sizeof(output));  // initialize the buffer
 
-        int bytes_received = recv(client_socket, output, sizeof(output) - 1, 0); 
-        // leave space for a null terminator
-        if (bytes_received == -1) {
-            // Check for error
-            perror("Error receiving output");
-            break;
-        } 
-        else if (bytes_received == 0)
-         {
-            // Nothing received
-            printf("No message back\n");
-            //continue;
+            int bytes_received = recv(client_socket, output, sizeof(output) - 1, 0); 
+            // leave space for a null terminator
+            if (bytes_received == -1) 
+            {
+                // Check for error
+                perror("Error receiving output");
+                break;
+            } 
+            else if (strcmp(output, "finish") == 0) 
+            {
+                // The server sends "finish" when it's done sending the output
+                break;
+            }
+            else if (bytes_received == 0)
+            {
+                // Nothing received
+                printf("No message back\n");
+            }
+            else 
+            {
+                output[bytes_received] = '\0'; // make sure it's null terminated
+            }
+            // Print the output
+            printf("%s", output);
+
         }
-        else 
-        {
-            output[bytes_received] = '\0'; // make sure it's null terminated
-        }
-        // Print the output
-        printf("Server responce:\n");
-        printf("%s", output);
     }
     close(client_socket); // Close the socket
     return 0;
 }
-
 
 
 

@@ -18,24 +18,25 @@
 #include <sys/mman.h>
 #include <semaphore.h>
 #include <math.h>
+#include <limits.h>
 
 #include "linked_list.h"
 # include "execute_command.h"
 
 #define PORT 6000
 
-sem_t sem_client[10]; // ten client --> ten semaphores
+sem_t sem_client[5]; // 5 client --> 5 semaphores
 int client_flag = 0; // the index to indicate which semaphore the client is using
-node *my_list;
-
+node *my_list; // Single Linked list
+// NEW!!!  the argument passed in the client thread
 struct client_arg{
    int new_socket; //socket for inter-process communications
    node* my_list; // Single Linked list
    int my_flag; // which semaphore the client uses
 } *args;
 
-void *handle_client(void *arg);
-void *manage_process(void *link_list);
+void *handle_client(void *arg); 
+void *manage_process(void *link_list); // NEW!!! manage the process
 
 int main()
 {
@@ -43,8 +44,8 @@ int main()
     
 	// NEW!!! manager thread----------------------------------------------------
     pthread_t thread_id;
-    int rc;
-    rc = pthread_create(&thread_id, NULL, manage_process, my_list);
+    int rc; // return value for pthread_create
+    rc = pthread_create(&thread_id, NULL, manage_process, my_list); // create a thread to manage the process
     if (rc) // if rc is > 0 imply could not create new thread
     {
       printf("\n ERROR: return code from pthread_create is %d \n", rc);
@@ -55,9 +56,9 @@ int main()
 	//create socket
 	int server_socket;
 	server_socket = socket(AF_INET , SOCK_STREAM,0);
-
+	// set socket option to reuse the address
 	if(setsockopt(server_socket, SOL_SOCKET,SO_REUSEADDR,&(int){1},sizeof(int))<0)
-    {
+    { // error checking for setsockopt
         perror("setsockopt error");
         exit(EXIT_FAILURE);
     }
@@ -109,26 +110,27 @@ int main()
     	}
     	printf("Server: socket ACCEPT success..\n");
 		// NEW!!! initialize the semaphore----------------------------------------
-		// Create a thread to handle the client
+		// the semaphore is initialized to 0, so that the client thread will wait for the manager thread to post the semaphore
 		sem_init(&sem_client[client_flag],0,0); 
 		//----------------------------------------------------------------------
 		//NEW!!! create the argument for the thread
-		args = malloc(sizeof(struct client_arg) * 1);//free了吗
-		if (args == NULL) 
+		args = malloc(sizeof(struct client_arg) * 1); // allocate memory for the argument
+		if (args == NULL) // error checking for malloc
 		{
 			perror("Failed to allocate memory");
 			exit(EXIT_FAILURE);
 		}
+		// initialize the argument
     	args->new_socket = client_socket;
     	args->my_list = my_list;
     	args->my_flag = client_flag;
-		pthread_t thread;
+		pthread_t thread; // create a thread for each client [client thread, run handle_client]
 		if (pthread_create(&thread, NULL, handle_client, args) != 0) 
-		{
+		{ // error checking for pthread_create
             perror("Error creating thread");
             exit(EXIT_FAILURE);
         }
-		client_flag++;
+		client_flag++; // increment the client_flag, so that the next client will use the next semaphore
 		
 		//----------------------------------------------------------------------
 
@@ -142,9 +144,8 @@ int main()
 void *manage_process(void *link_list)
 {
 	//these are the utilities node to schedule the process
-	node *header = link_list;
+	node *header = link_list; 
 	node *next_node = my_list->next;
-
 	node *current = header;
 	node *node_to_begin = header;
 	node *node_last_second = header;
@@ -155,10 +156,8 @@ void *manage_process(void *link_list)
 	int min_time;
 	int second_min_time;
 
-	int client_socket;
-	
-	//this is the flag to indicate whether the process is finished
-	int finish_flag = 0;
+	int client_socket; 
+	int finish_flag = 0; //this is the flag to indicate whether the process is finished
 
 	// a while loop to continuously check the linked list every second for incoming commands
 	// this is necessary to ensure the new shortest commands (including shell commands) can be executed immediately
@@ -170,12 +169,11 @@ void *manage_process(void *link_list)
 		next_node = my_list->next;
 		if(next_node == NULL)
 		{ // if no command, skip this cycle
-            //printf("From manager: nothing in the queue now, waiting for commands.\n");
-            sleep(1);
+            sleep(1); // sleep for 1 second, then check again [we check the new command every second]
             continue;
         }
 
-		node_to_begin = next_node;
+		node_to_begin = next_node; // set the node_to_begin to the first node after header
 
 		if(next_node->remaining_time == -1)// if the command is a shell command
 		{ 
@@ -185,15 +183,16 @@ void *manage_process(void *link_list)
 		}
 		else// if the command is a program
 		{ 
-			min_time = 10000;	
-			second_min_time = 100000;	
-			
+			min_time = INT_MAX;	// initialize the min_time to the maximum integer value
+			second_min_time = INT_MAX;	// initialize the second_min_time to the maximum integer value
+			// initilize the min_node and second_min_node to the next_node, which is the first node after header
+			// this is necessary to ensure the min_node and second_min_node are not NULL
 			current = next_node;
 			min_node = next_node;
 			second_min_node = next_node;
 
 			//find the shortest time and the second shortest time
-			while (current != NULL) 
+			while (current != NULL) // loop through the linked list
 			{
 				if (current->remaining_time < min_time) 
 				{
@@ -204,21 +203,21 @@ void *manage_process(void *link_list)
 					min_time = current->remaining_time;
 					min_node = current;
 				} else if (current->remaining_time <= second_min_time && current->remaining_time != min_time) 
-				{
+				{ 
 					// to find the second shortest time
 					second_min_time = current->remaining_time;
 					second_min_node = current;
 				}
+				// move to the next node
 				current = current->next;
 				
 			}
-			printf("	min_node %d with min_time %d\n", min_node->client_id, min_time);
-			printf("	second_min_node %d with second_min_time %d\n", second_min_node->client_id, second_min_time);
 
 			// the length of the list greater than 3 ensures that there are at least 2 nodes after header
+			// this is necessary to handle the situation for not same progress[program+program] be selected in two consecutive rounds
+			// shell+program is aleady handled by the if statement above
 			if (get_list_length(header)>=3)
 			{
-				printf("	node_last_round: %d\n", node_last_round->client_id);
 
 				// a special case where the two shortest nodes have just finished there former cycle
 				if (min_node->runned_time ==0 && second_min_node->runned_time ==0) 
@@ -226,12 +225,10 @@ void *manage_process(void *link_list)
 					if (min_node->client_id != node_last_round->client_id)//therefore, if the min_node is not the node_last_round, prioritize it
 					{
 						node_to_begin = min_node;
-						printf("	(SJRF_1)DECISION: run min_node: %d\n", node_to_begin->client_id);
 					}
 					else if (min_node->client_id == node_last_round->client_id )//give the priority to the second_min_node if the min_node is the node_last_round
 					{
 						node_to_begin = second_min_node;
-						printf("	(SJRF_2)DECISION: run second_min_node: %d\n", node_to_begin->client_id);
 					}
 					
 				}
@@ -240,7 +237,6 @@ void *manage_process(void *link_list)
 				else if (min_node->client_id != node_last_round->client_id)
 				{
 					node_to_begin = min_node;
-					printf("	(SJRF_3)DECISION: run min_node: %d\n", node_to_begin->client_id);
 				}
 				else//if the min_node is the node run last round unfortunately
 				{
@@ -249,12 +245,10 @@ void *manage_process(void *link_list)
 						if (node_last_round->client_id == min_node->client_id)
 						{
 							node_to_begin = second_min_node;
-							printf("	(a)DECISION: run second_min_node: %d\n", node_to_begin->client_id);
 						}
 						else
 						{
 							node_to_begin = min_node;
-							printf("	(b)DECISION: run min_node: %d\n", node_to_begin->client_id);
 						}
 					}
 					else//if the min_node (node_last_round) ended preempted
@@ -262,22 +256,20 @@ void *manage_process(void *link_list)
 						if (node_last_round->client_id == min_node->client_id)
 						{
 							node_to_begin = second_min_node;
-							printf("	(c)DECISION: run second_min_node: %d\n", node_to_begin->client_id);
 						}
 						else
 						{
 							node_to_begin = min_node;
-							printf("	(d)DECISION: run min_node: %d\n", node_to_begin->client_id);
 						}
 					}
 				}
 				
 			}
-
-			
-			if (node_to_begin->remaining_time <= 1)// if the program is about to complete (just one second left!)
+			// the code above is for scheduling the process to run
+			// the code below is for updating the info for the nodes in the linked list and release the semaphore for the process to run
+			if (node_to_begin->remaining_time <= 1) // if the program is about to complete (just one second left!)
 			{ 
-				sem_post(&sem_client[node_to_begin->semaphore_id]);
+				sem_post(&sem_client[node_to_begin->semaphore_id]); // post semaphore to let the process run
 				finish_flag = 1;//set the flag to 1 to indicate the process is finished
 			}
 			else// if the program is not completed (more seconds left to run!)
@@ -291,7 +283,6 @@ void *manage_process(void *link_list)
 						node_last_second->round +=1;//increment the round for the node run last second
 						node_last_second->runned_time = 0;//reset the runned_time for the node run last second to the beginning of next round
 					}
-					printf("	和上一秒切换了\n");
 					
 					//if the node las second was preempted, we need to update the node_last_round
 					if (node_last_second->round ==1 && node_last_second->runned_time < 3 || node_last_second->round >=2 && node_last_second->runned_time < 7)
@@ -301,45 +292,34 @@ void *manage_process(void *link_list)
 
 					//also we need to update the node_last_second to the current node
 					node_last_second = node_to_begin;
-					printf("	updated node_last_second to: %d\n", node_last_second->client_id);
 				}
 				
 				//if the node is running during the 2,3,4... round
 				if (node_to_begin->round >=2 && node_to_begin->runned_time < 7)
 				{
 					node_to_begin->runned_time++;//increment the runned_time for simulation purpose
-					printf("	node_to_begin->runned_time: %d\n", node_to_begin->runned_time);
 				}
 				//if the node is running during the 2,3,4... round and finishes naturally
 				if (node_to_begin->round >=2 && node_to_begin->runned_time >= 7)
 				{
-					printf("	the %d round of node %d finished\n", node_to_begin->round, node_to_begin->client_id);
 					node_to_begin->round +=1;//increment the round for the node
-					printf("	node_to_begin->round: %d\n", node_to_begin->round);
 					node_to_begin->runned_time = 0;//reset the runned_time for the node to the beginning of next round
-					printf("	node_to_begin->runned_time: %d\n", node_to_begin->runned_time);
 					node_last_round = node_to_begin;//update the node_last_round to the current node so that the node next second would know this info
-					printf("	UPDATED node_last_round: %d\n", node_last_round->client_id);
 				}
 
 				//if the node is running during the first round
 				if (node_to_begin->round == 1 && node_to_begin->runned_time < 3)
 				{
 					node_to_begin->runned_time++;
-					printf("	node_to_begin->runned_time: %d\n", node_to_begin->runned_time);
 				}
 				
 				//if the node is running during the first round and finishes naturally
 				if (node_to_begin->round == 1 && node_to_begin->runned_time >= 3)
 				{
-					printf("	the first round of node %d finished\n", node_to_begin->client_id);
 					node_to_begin->round +=1;//increment the round for the node
-					printf("	node_to_begin->round: %d\n", node_to_begin->round);
 					node_to_begin->runned_time = 0;//reset the runned_time for the node to the beginning of next round
-					printf("	node_to_begin->runned_time: %d\n", node_to_begin->runned_time);
 					
 					node_last_round = node_to_begin;//update the node_last_round to the current node so that the node next second would know this info
-					printf("	UPDATED node_last_round: %d\n", node_last_round->client_id);
 				}
 				
 				
@@ -356,11 +336,10 @@ void *manage_process(void *link_list)
 				char buffer[256];
 				int length = snprintf(buffer, sizeof(buffer), "demo: %d/%d\n", node_to_begin->total_progress, node_to_begin->total_time);
 				send(client_socket, buffer, length, 0);
-				printf("	sent the demo output to the client\n");//send the demo output to the client
+				
 			}
 
 			printf("################# demo %d/%d #######################\n", node_to_begin->total_progress, node_to_begin->total_time);
-			print_list(header);
 
 			sleep(1); // sleep for 1 second for simulation purpose
 
@@ -368,25 +347,14 @@ void *manage_process(void *link_list)
 			{ 
 				sem_wait(&sem_client[node_to_begin->semaphore_id]); // wait for the client to finish
 				node_last_second = node_to_begin;//update the node_last_second to the current node
-				printf("	updated node_last_second: %d\n", node_last_second->client_id);
 				printf("------------------------------------------------------------------\n");
 				print_list(header);
 				
 			}
 			else//if the process has finished
 			{
-				//prev_run=next_node; // prev_run should be the node which runs, this is the value when the node is completed
-				//if the node is a demo program, send the last output to the client
-				/*
-				if (node_to_begin->input[0]=='.' && node_to_begin->input[1]=='/' &&node_to_begin->input[2]=='d'&&node_to_begin->input[3]=='e'&&node_to_begin->input[4]=='m'&&node_to_begin->input[5]=='o')
-				{
-					char buffer[256];
-					int length = snprintf(buffer, sizeof(buffer), "demo: %d/%d\n", node_to_begin->total_time, node_to_begin->total_time);
-					send(client_socket, buffer, length, 0);
-					printf("sent the last output to the client\n");
-				}*/
 				send(client_socket, "finish", sizeof("finish"), 0);//send the finish signal to the client so that the client can ask for user input again
-				printf("sent the finish signal to the client\n");
+				
 				node_last_second = header;//reset the node_last_second to the header
 				node_last_round = header;//reset the node_last_round to the header
 				//delete the node from the linked list
@@ -399,10 +367,10 @@ void *manage_process(void *link_list)
 // NEW!!! new version
 void *handle_client(void *args)
 {
-	struct client_arg *arguments = args;
-	int client_socket = arguments->new_socket; // dereference socket
-	pthread_t thread_id = pthread_self();
-	int flag = arguments->my_flag; 
+	struct client_arg *arguments = args; // cast the argument to the struct client_arg
+	int client_socket = arguments->new_socket; // get the socket from the argument
+	pthread_t thread_id = pthread_self(); // get the thread id
+	int flag = arguments->my_flag; // get the semaphore id from the argument
 
 	printf("[%d]<<< client connected\n", flag);
 
@@ -413,8 +381,8 @@ void *handle_client(void *args)
 		if (bytes_received <= 0) 
 		{ // error checking for recv
             // The client has disconnected.
-			printf("[%d]<<< client connected\n", flag);
-			// NEW!!! add delete process with the client id!
+			printf("[%d]<<< client disconnected\n", flag);
+			// NEW!!! add delete process with the client id when the client disconnects!
 			while(search_node(arguments->my_list, pthread_self())!=NULL){
 				delete_node(&arguments->my_list, pthread_self());
 			}
@@ -424,8 +392,8 @@ void *handle_client(void *args)
 		// Null terminate the string to avoid printing garbage.
 		command[bytes_received] = '\0';
         if (strncmp("exit", command, 4) == 0||strncmp("quit", command, 4) == 0) { // Exit the shell if the user enters "exit" or "quit"
-            printf("[%d]<<< client connected\n", flag);
-			// NEW!!! add delete process with the client id!
+            printf("[%d]<<< client disconnected\n", flag);
+			// NEW!!! add delete process with the client id when the client disconnects!
 			while(search_node(arguments->my_list, pthread_self())!=NULL){
 				delete_node(&arguments->my_list, pthread_self());
 			}
@@ -436,15 +404,15 @@ void *handle_client(void *args)
 		//NEW!!! add the command to the linked list --------------------------------------------------------------------------------
 		int remaining_time = 0;
 		if (strstr(command, "./demo") != NULL)
-		{
+		{ // if the command is a demo program
 			printf("in thread %p: this is the demo program\n", (void*)thread_id);
-			sscanf(command, "./demo %d", &remaining_time);
-			printf("[%d]--- created (%d)\n", flag, remaining_time);
+			sscanf(command, "./demo %d", &remaining_time); // get the remaining time from the command
+			printf("[%d]--- created (%d)\n", flag, remaining_time); 
 			tail_insert(&arguments->my_list, create_node(thread_id, flag, command, remaining_time, 1,0, client_socket));
-			sem_wait(&sem_client[flag]);
+			sem_wait(&sem_client[flag]); // wait for the manager thread to post the semaphore
 		}
 		else if(strstr(command, "./") != NULL)
-		{	
+		{	// if the command is a program
 			printf("in thread %p: this is the rest program\n", (void*)thread_id);
 			remaining_time =1;
 			printf("[%d]--- created (%d)\n", flag, remaining_time);

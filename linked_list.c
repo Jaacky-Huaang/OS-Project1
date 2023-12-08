@@ -37,10 +37,10 @@ typedef struct node
     int client_id;
 } node;
 
-// strict?
+// create a node which contains the execution's information
 node* create_node(pthread_t thread_id, int semaphore_id, char input[1024], int remaining_time, int round,int runned_time, int socket)
 {
-    node* new_node = (node*)malloc(sizeof(node));//要记得free!
+    node* new_node = (node*)malloc(sizeof(node));
     memset(new_node, 0, sizeof(node));
     new_node->thread_id = thread_id;
     new_node->semaphore_id = semaphore_id;
@@ -81,6 +81,7 @@ void tail_insert(node **head, node *new_node)
     new_node->next = NULL; // Ensure the new node's next is NULL
 }
 
+// a function to insert a node at the beginning of the linked list
 void head_insert(node **head, node *new_node) 
 {
     if (new_node == NULL) 
@@ -144,14 +145,14 @@ node *search_node(node *head, pthread_t thread_id)
     return NULL;
 }
 
-
+// a function to print a node
 void print_node(const node *n) 
 {
     //skip header
     n = n->next;
     if (n != NULL) 
     {
-        printf("Thread ID: %lu, Semaphore ID: %d, Input: %s, Remaining Time: %d\n, Round: %d, Runned Time: %d\n", 
+        printf("Thread ID: %p, Semaphore ID: %d, Input: %s, Remaining Time: %d\n, Round: %d, Runned Time: %d\n", 
                 n->thread_id, n->semaphore_id, n->input, n->remaining_time,n->round,n->runned_time);
                
     }
@@ -160,7 +161,7 @@ void print_node(const node *n)
         printf("NULL\n");
     }
 }
-
+// a function to print the linked list
 void print_list(const node *head) 
 {
     const node *current = head;
@@ -170,7 +171,7 @@ void print_list(const node *head)
         current = current->next;
     }
 }
-
+// a function to get the length of the linked list
 int get_list_length(const node *head) 
 {
     int length = 0;

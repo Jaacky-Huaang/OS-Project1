@@ -1,18 +1,1 @@
-Makefile
-Project Phase 1 Guidelines.pdf
-README.md
-_output.txt
-a.txt
-execute_command.c
-execute_command.h
-execute_command.o
-new
-shell_framework
-shell_framework.c
-shell_framework.o
-shell_framework_client
-shell_framework_client.c
-shell_framework_client.o
-shell_server
-shell_server.c
-shell_server.o
+hi

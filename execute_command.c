@@ -170,7 +170,7 @@ int error_redirect(char *command)
 }
 
 // function to execute the single command[no pipe, one redirection or no redirection], designed to be reused in the pipe function
-int execute_helper(char *command) 
+int execute_helper(char *command, int output_fd) 
 {
 
     if (strchr(command, '<') )//if the command contains <, then it is an input redirection
@@ -192,7 +192,7 @@ int execute_helper(char *command)
     { 
         char **args = create_args(command, " ");//if we do not have >, <, 2>, then we just create arguments for the command, split based on space
         if (execvp(args[0], args) == -1) { // Execute the command
-            perror("Error executing command");
+            write(output_fd, "Error executing command\n", 24);
             exit(EXIT_FAILURE); // Only the child exits
         }
 
@@ -298,7 +298,7 @@ int execute_one_pipe(char *command1, char *command2, int output_fd) {
     else if (pid == 0) { // Child process for command1
         close(pipefd[0]);//close the read end of the pipe
         dup2(pipefd[1], STDOUT_FILENO);//replace stdout with the write end of the pipe
-        execute_helper(command1);//execute command1
+        execute_helper(command1, output_fd);//execute command1
     }
 
     close(pipefd[1]); // Close the write end of the pipe
@@ -344,7 +344,7 @@ int execute_two_pipes(char *command1, char *command2, char *command3, int output
         close(pipefd1[0]); // Close the read end of pipe1
         close(pipefd2[0]); // Close the read end of pipe2
         close(pipefd2[1]); // Close the write end of pipe2
-        execute_helper(command1); // execute command1
+        execute_helper(command1, output_fd); // execute command1
         perror("child1 execution failed error"); // error handling
         exit(EXIT_FAILURE);
         }
@@ -361,7 +361,7 @@ int execute_two_pipes(char *command1, char *command2, char *command3, int output
             close(pipefd2[0]); // Close the read end of pipe2
             close(pipefd2[1]); // Close the write end of pipe2
             close(pipefd1[0]); // Close the read end of pipe1
-            execute_helper(command2); // execute command2
+            execute_helper(command2, output_fd); // execute command2
             perror("child2 execution failed error"); // error handling
             exit(EXIT_FAILURE);
             }
@@ -377,9 +377,12 @@ int execute_two_pipes(char *command1, char *command2, char *command3, int output
                     close(pipefd1[0]); // Close the read end of pipe1
                     close(pipefd2[1]); // Close the write end of pipe2
                     close(pipefd2[0]); // Close the read end of pipe2
-                    new_execute_helper(command3, output_fd); // execute command3
-                    perror("child3 execution failed error"); // error handling
-                    exit(EXIT_FAILURE);
+                    int return_status = new_execute_helper(command3, output_fd); // execute command3
+                    if (return_status == -1)
+                    {
+                        perror("child3 execution failed error"); // error handling
+                        exit(EXIT_FAILURE);
+                    }
                 }
                 else
                 {
@@ -427,7 +430,7 @@ int execute_three_pipes(char *command1, char *command2, char *command3, char *co
         close(pipefd2[0]); // Close the write end of pipe2
         close(pipefd3[1]); // Close the read end of pipe3
         close(pipefd3[0]); // Close the write end of pipe3
-        execute_helper(command1); // execute command1
+        execute_helper(command1, output_fd); // execute command1
         
         perror("child1 execution failed error"); // error handling
         exit(EXIT_FAILURE);
@@ -447,7 +450,7 @@ int execute_three_pipes(char *command1, char *command2, char *command3, char *co
             close(pipefd2[0]); // Close the read end of pipe2
             close(pipefd3[1]); // Close the read end of pipe3
             close(pipefd3[0]); // Close the write end of pipe3
-            execute_helper(command2); // execute command2
+            execute_helper(command2, output_fd); // execute command2
             
             perror("child2 execution failed error");
             exit(EXIT_FAILURE);
@@ -467,7 +470,7 @@ int execute_three_pipes(char *command1, char *command2, char *command3, char *co
                 close(pipefd2[0]); // Close the read end of pipe2
                 close(pipefd3[1]); // Close the read end of pipe3
                 close(pipefd3[0]); // Close the write end of pipe3
-                execute_helper(command3); // execute command3
+                execute_helper(command3, output_fd); // execute command3
                 
                 perror("child3 execution failed error"); // error handling
                 exit(EXIT_FAILURE);
@@ -487,10 +490,12 @@ int execute_three_pipes(char *command1, char *command2, char *command3, char *co
                     close(pipefd2[0]); // Close the read end of pipe2
                     close(pipefd3[1]); // Close the read end of pipe3
                     close(pipefd3[0]); // Close the write end of pipe3
-                    new_execute_helper(command4, output_fd); // execute command4
-                    
-                    perror("child4 execution failed error"); // error handling
-                    exit(EXIT_FAILURE);
+                    int return_status = new_execute_helper(command4, output_fd); // execute command3
+                    if (return_status == -1)
+                    {
+                        perror("child4 execution failed error"); // error handling
+                        exit(EXIT_FAILURE);
+                    }
                 }
                 else
                 {
